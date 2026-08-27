@@ -1,12 +1,22 @@
-__pycache__/
-.pytest_cache/
-*.pyc
-
 .venv/
 venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+htmlcov/
 
+# BCE source and generated artifacts
 data/
 output/
-
 *.xlsx
+*.xls
 *.zip
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+
+# Local secrets/config overrides
+.env
+match_config.local.json
+column_map_iraiser.local.json

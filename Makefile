@@ -1,94 +1,122 @@
-.PHONY: help install dev test testq lint format check check-data run dryrun clean status commit push sync
-
 PYTHON ?= python
-SCRIPT ?= $(firstword $(filter-out setup.py,$(wildcard *.py)))
+PIP ?= $(PYTHON) -m pip
 
 DATA_DIR ?= data
 OUTPUT_DIR ?= output
+BCE_INDEX ?= $(OUTPUT_DIR)/bce_reference.sqlite
+IRAISER_INPUT ?= $(DATA_DIR)/iraiser_missing_enterprise_number.xlsx
+IRAISER_KNOWN_INPUT ?= $(DATA_DIR)/iraiser_known_enterprise_numbers.xlsx
+MATCH_OUTPUT ?= $(OUTPUT_DIR)/iraiser_enterprise_matches.xlsx
+EVALUATION_OUTPUT ?= $(OUTPUT_DIR)/matching_evaluation.json
+MATCH_CONFIG ?= match_config.example.json
+COLUMN_MAP ?= column_map_iraiser.example.json
+BRANCH ?= main
 
-ENTERPRISE_CSV ?= $(DATA_DIR)/enterprise.csv
-DENOMINATION_CSV ?= $(DATA_DIR)/denomination.csv
-ADDRESS_CSV ?= $(DATA_DIR)/address.csv
-
-OUTPUT_XLSX ?= $(OUTPUT_DIR)/entreprises_belgique_numero_nom_adresse_split.xlsx
-
-m ?= update
+.PHONY: help install dev test testq lint check check-data run dryrun clean \
+        index index-full match evaluate inspect status commit push sync
 
 help:
-	@echo Available targets:
-	@echo   make install              - install runtime dependencies
-	@echo   make dev                  - install runtime dependencies + pytest
-	@echo   make test                 - run full test suite
-	@echo   make testq                - run tests quietly
-	@echo   make lint                 - compile the Python script
-	@echo   make format               - placeholder for formatter later
-	@echo   make check                - lint + test
-	@echo   make check-data           - verify the 3 BCE/KBO input CSV files
-	@echo   make run                  - build the Belgian enterprise Excel database
-	@echo   make dryrun               - show resolved script/input/output paths only
-	@echo   make clean                - delete Python and pytest caches
-	@echo   make status               - show git status
-	@echo   make commit m="msg"       - add + commit
-	@echo   make push                 - push main to origin
-	@echo   make sync m="msg"         - add + commit + push
-	@echo.
-	@echo Variables:
-	@echo   SCRIPT=script.py
-	@echo   DATA_DIR=data
-	@echo   OUTPUT_DIR=output
+	@echo "Project targets:"
+	@echo "  install      Install runtime/test dependencies"
+	@echo "  dev          Alias of install"
+	@echo "  test         Run tests verbosely"
+	@echo "  testq        Run tests quietly"
+	@echo "  lint         Compile Python sources to catch syntax errors"
+	@echo "  check        Run lint, tests and input-file checks"
+	@echo "  check-data   Verify the three required BCE CSV files"
+	@echo "  run          Generate the flattened BCE Excel with table_gen.py"
+	@echo "  dryrun       Show the table-generation command without executing it"
+	@echo "  index        Build the matcher index from registered offices"
+	@echo "  index-full   Build the matcher index including establishments"
+	@echo "  match        Match an iRaiser export"
+	@echo "  evaluate     Evaluate with rows whose enterprise number is known"
+	@echo "  inspect      Display matcher-index metadata"
+	@echo "  clean        Remove generated matching artifacts"
+	@echo "  status       Show Git status"
+	@echo "  commit       Commit with: make commit m=\"message\""
+	@echo "  push         Push the current branch"
+	@echo "  sync         Pull/rebase, commit and push with: make sync m=\"message\""
 
 install:
-	$(PYTHON) -m pip install pandas xlsxwriter
+	$(PIP) install -r requirements.txt
 
-dev:
-	$(PYTHON) -m pip install pandas xlsxwriter pytest
+dev: install
 
 test:
-	$(PYTHON) -m pytest -v
+	$(PYTHON) -m pytest -vv
 
 testq:
 	$(PYTHON) -m pytest -q
 
 lint:
-	$(PYTHON) -m py_compile "$(SCRIPT)"
-
-format:
-	@echo No formatter configured yet
-
-check: lint test
+	$(PYTHON) -m compileall -q enterprise_match.py table_gen.py tests
 
 check-data:
-	PowerShell -NoProfile -Command "$$files = @('$(ENTERPRISE_CSV)', '$(DENOMINATION_CSV)', '$(ADDRESS_CSV)'); $$missing = $$files | Where-Object { -not (Test-Path $$_) }; if ($$missing) { Write-Error ('Missing input file(s): ' + ($$missing -join ', ')); exit 1 }; if (-not (Test-Path '$(OUTPUT_DIR)')) { New-Item -ItemType Directory -Path '$(OUTPUT_DIR)' | Out-Null }; Write-Host 'BCE/KBO input files OK'"
+	$(PYTHON) -c "from pathlib import Path; p=Path('$(DATA_DIR)'); required=('enterprise.csv','denomination.csv','address.csv'); missing=[x for x in required if not (p/x).is_file()]; assert not missing, 'Missing BCE files: '+', '.join(missing); print('BCE input files found in', p)"
+
+check: lint testq check-data
 
 run: check-data
-	@echo Running: $(SCRIPT)
-	$(PYTHON) "$(SCRIPT)"
+	$(PYTHON) table_gen.py
 
 dryrun: check-data
-	@echo Script:       $(SCRIPT)
-	@echo Enterprise:   $(ENTERPRISE_CSV)
-	@echo Denomination: $(DENOMINATION_CSV)
-	@echo Address:      $(ADDRESS_CSV)
-	@echo Output:       $(OUTPUT_XLSX)
-	@echo.
-	@echo No data processing was executed.
+	@echo "Would run: $(PYTHON) table_gen.py"
+	@echo "Expected output: $(OUTPUT_DIR)/entreprises_belgique_numero_nom_adresse_split.xlsx"
+
+index: check-data
+	$(PYTHON) enterprise_match.py build-index \
+		--data-dir "$(DATA_DIR)" \
+		--index "$(BCE_INDEX)" \
+		--overwrite
+
+index-full: check-data
+	$(PYTHON) enterprise_match.py build-index \
+		--data-dir "$(DATA_DIR)" \
+		--index "$(BCE_INDEX)" \
+		--include-establishments \
+		--overwrite
+
+match:
+	$(PYTHON) enterprise_match.py match \
+		--input "$(IRAISER_INPUT)" \
+		--index "$(BCE_INDEX)" \
+		--column-map "$(COLUMN_MAP)" \
+		--config "$(MATCH_CONFIG)" \
+		--output "$(MATCH_OUTPUT)" \
+		--output-format both
+
+evaluate:
+	$(PYTHON) enterprise_match.py evaluate \
+		--input "$(IRAISER_KNOWN_INPUT)" \
+		--index "$(BCE_INDEX)" \
+		--column-map "$(COLUMN_MAP)" \
+		--config "$(MATCH_CONFIG)" \
+		--output "$(EVALUATION_OUTPUT)" \
+		--target-precision 0.995 \
+		--target-probable-precision 0.95
+
+inspect:
+	$(PYTHON) enterprise_match.py inspect-index --index "$(BCE_INDEX)"
 
 clean:
-	PowerShell -NoProfile -Command "Get-ChildItem -Recurse -Directory -Filter __pycache__ -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force"
-	PowerShell -NoProfile -Command "Get-ChildItem -Recurse -File -Include *.pyc -ErrorAction SilentlyContinue | Remove-Item -Force"
-	PowerShell -NoProfile -Command "if (Test-Path .pytest_cache) { Remove-Item .pytest_cache -Recurse -Force }"
+	rm -f "$(BCE_INDEX)" "$(BCE_INDEX)-shm" "$(BCE_INDEX)-wal"
+	rm -f "$(MATCH_OUTPUT)" "$(EVALUATION_OUTPUT)"
+	rm -rf "$(OUTPUT_DIR)/iraiser_enterprise_matches_csv"
 
 status:
-	git status
+	git status --short --branch
 
 commit:
+	$(if $(strip $(m)),,$(error Usage: make commit m="message"))
 	git add .
-	git commit -m "$(m)"
+	git diff --cached --quiet || git commit -m "$(m)"
 
 push:
-	git push origin main
+	git push -u origin "$(BRANCH)"
 
 sync:
+	$(if $(strip $(m)),,$(error Usage: make sync m="message"))
+	git pull --rebase origin "$(BRANCH)"
 	git add .
-	git commit -m "$(m)"
-	git push origin main
+	git diff --cached --quiet || git commit -m "$(m)"
+	git push -u origin "$(BRANCH)"

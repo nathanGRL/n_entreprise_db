@@ -1,0 +1,13 @@
+{
+  "certain_score": 92.0,
+  "certain_gap": 8.0,
+  "probable_score": 72.0,
+  "probable_gap": 3.0,
+  "max_candidates_per_block": 250,
+  "max_total_candidates": 700,
+  "fts_candidates": 300,
+  "top_k": 5,
+  "min_name_score_probable": 62.0,
+  "min_name_score_certain": 86.0,
+  "automatic_requires_strong_evidence": true
+}

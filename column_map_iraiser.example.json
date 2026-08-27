@@ -1,0 +1,10 @@
+{
+  "source_id": "reference",
+  "enterprise_number": "enterprise_number",
+  "company_name": "company_name",
+  "street": "street3",
+  "house_number": "street_number",
+  "box": "street_box",
+  "postcode": "zip",
+  "city": "city"
+}
