@@ -116,7 +116,7 @@ push:
 
 sync:
 	$(if $(strip $(m)),,$(error Usage: make sync m="message"))
-	git pull --rebase origin "$(BRANCH)"
 	git add .
 	git diff --cached --quiet || git commit -m "$(m)"
+	git pull --rebase origin "$(BRANCH)"
 	git push -u origin "$(BRANCH)"
